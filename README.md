@@ -1,4 +1,4 @@
-# MMD-Projetct
+# MMD-Project
 Github for MMD-project
 
 
