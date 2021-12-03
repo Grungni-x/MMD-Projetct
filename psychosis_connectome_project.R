@@ -11,8 +11,7 @@
 
 rm(list = ls())
 dev.off()
-
-# We should add patient IDs
+setwd("/Users/raphaelbourque/desktop/projet psychosis connectome")
 
 # Load
 library("tm")
@@ -26,8 +25,8 @@ library("ggplot2")
 # Source: Stangeland, H., Orgeta, V., & Bell, V. (2018). Poststroke psychosis: a systematic review. Journal of Neurology, Neurosurgery & Psychiatry, 89(8), 879-885.
 patients <- read.delim2("patient_list.csv",header=TRUE, sep=";", dec = ",",na.strings = c("NA", ""), comment.char = "", check.names = FALSE)
 
-
 # Load connectome: average structural connectome from n = 842 general population subjects
+# The connectome is parcellated in 65 regions based on AAL parcellation
 # Source: Yeh, F. C., Panesar, S., Fernandes, D., Meola, A., Yoshino, M., Fernandez-Miranda, J. C., ... & Verstynen, T. (2018). Population-averaged atlas of the macroscale human structural connectome and its network topology. Neuroimage, 178, 57-68.
 connectome <- read.delim2("connectogram.csv",header=TRUE, sep=";", dec = ",",na.strings = c("NA", ""), comment.char = "", check.names = FALSE)
 rownames(connectome) <- connectome[,1] 
@@ -37,7 +36,9 @@ connectome <- connectome[,-1]
 # T value 5,7,9,11 (cf. )
 # "When deciding which threshold to use for the ‘primary’ analysis, we choose the highest threshold that still demon- strates the relevant finding, as this will improve specificity."
 
+# ==============================================================================
 # Textual analysis of psychotic symptoms
+# ==============================================================================
 # Reference: http://www.sthda.com/english/wiki/text-mining-and-word-cloud-fundamentals-in-r-5-simple-steps-you-should-know
 docs <- Corpus(VectorSource(patients$symptoms[-c(1,2)]))
 docs <- tm_map(docs, removeWords, stopwords("english"))
@@ -52,10 +53,14 @@ set.seed(1234)
 wordcloud(words = d$word, freq = d$freq, min.freq = 1,
           max.words=200, random.order=FALSE, rot.per=0.35, 
           colors=brewer.pal(8, "Dark2"),scale = c(3, 0.2))
-barplot(d[1:10,]$freq, las = 2, names.arg = d[1:10,]$word,
-        col ="lightblue", main ="Most frequent words",
-        ylab = "Word frequencies")
 
+x <- barplot(d[1:10,]$freq, las = 2, names.arg = d[1:10,]$word,
+        col ="lightblue", main ="Most frequent words",
+        ylab = "Word frequencies",cex.names=0.7)
+
+# ==============================================================================
+# Connectivity of lesions
+# ==============================================================================
 # For each patient, project lesion to connectome
 patients_brain <- patients[3:61,4:68]
 patients_brain[] <- lapply(patients_brain,as.numeric)
@@ -63,16 +68,17 @@ connectome <- as.matrix(connectome)
 projections <- c() # to store the results
 for (i in 1:59){
   print(paste("working on patient",i))
-  # Sys.sleep(1)  # Slow down the code to make it look more serious
   this_patient_lesion <- as.numeric(patients_brain[i,])
   this_patient_projections <- connectome %*% this_patient_lesion # multiply matrix by vector
-  print(paste(this_patient_projections))
   C1 <- c(this_patient_projections)
   projections <- rbind(projections,C1)
   colnames(projections) <- c(rownames(this_patient_projections))
 }
 projections <- data.frame(projections)
 
+# ==============================================================================
+# Test statistical significance of LESION CONNECTIVITY
+# ==============================================================================
 # Add data concerning symptoms and control variables
 projections$delusio <- rep(0,length(nrow(projections)))
 projections$delusio[grep("delusio",patients$symptoms[-c(1,2)])] <- 1
@@ -86,14 +92,11 @@ projections$visual <- rep(0,length(nrow(projections)))
 projections$visual[grep("visual",patients$symptoms[-c(1,2)])] <- 1
 projections$age <- patients$age[-c(1,2)]
 
-# Test statistical significance
 # Modèle linéaire prédisant l'atteinte pour chaque région cérébrale en fonction des symptômes les plus communs et corrigeant pour les autres
-
 results <- c()
 for (i in c(1:65)){ # for each of 65 brain regions
   projections$outcome <- projections[,i] # select region
-  mod1<- lm(outcome ~ 
-               #as.factor(delusio)+
+  mod1<- lm(outcome ~
                as.factor(hallucinat)+
                as.factor(othello)+
                as.factor(parasit)+
@@ -101,9 +104,8 @@ for (i in c(1:65)){ # for each of 65 brain regions
                as.numeric(age),
              data = projections)
   
-  VIF <- vif(mod1) # Multicolinearity check and print if applies
-  if (any(VIF>=10) == TRUE) {print (paste("Check for multicolinearity, VIF =",VIF))}
-
+ # VIF <- vif(mod1) # Multicolinearity check and print if applies
+ # if (any(VIF>=10) == TRUE) {print (paste("Check for multicolinearity, VIF =",VIF))}
   estimate <- coef(mod1)
   intervals <- confint(mod1)
   p_values <- summary(mod1)$coefficients[,4]
@@ -115,8 +117,7 @@ for (i in c(1:65)){ # for each of 65 brain regions
 results <- data.frame(results)
 results[,c(1:3,6)] <- lapply(results[,c(1:3,6)],as.numeric)
 # results$p_values <- p.adjust(results$p_values, method = "fdr", n = length(results$p_values))
-results$significance[results$p_values>0.05] <- "p>0.05"
-results$significance[results$p_values<0.1] <- "p<0.1"
+results$significance[results$p_values>0.05] <- NA
 results$significance[results$p_values<0.05] <- "p<0.05"
 results$significance[results$p_values<0.01] <- "p<0.01"
 results$significance[results$p_values<0.001] <- "p<0.001"
@@ -126,11 +127,13 @@ results <- results[(results$symptoms == "(Intercept)")==FALSE,]
 results <- results[(results$symptoms == "as.numeric(age)")==FALSE,]
 # Plot
 ggplot() +
-  geom_bar(data=results,aes(x=brain_region, y=effect_size, fill=significance), position=position_dodge(width=0.9),stat="identity") +
-  geom_point(data=results,aes(x=brain_region, y=effect_size, color=significance), position=position_dodge(width=0.9),stat="identity") +
+  geom_bar(data=results,aes(x=brain_region, y=effect_size), color="grey", position=position_dodge(width=0.9),stat="identity") +
+  geom_point(data=results,aes(x=brain_region, y=3, color=significance), position=position_dodge(width=0.9),stat="identity") +
+  geom_errorbar(data=results,aes(x=brain_region, ymin=lower, ymax=upper), position=position_dodge(width=0.9),stat="identity")+
   facet_wrap(~ symptoms, nrow = 2, scales="free_y")+
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
 
 # Interprétation: parmi les patients ayant des symptômes psychotiques après une lésion causée par un AVC (stroke), 
 # la connectivité de lésion avec la région Y est significativement plus élevée chez les patients ayant le symptôme X que chez ceux n'ayant pas ce symptôme,
-# en maintenant constant l'âge, et les autres symptômes plus communs. 
+# en maintenant constant l'âge, et les autres symptômes plus communs.
+
