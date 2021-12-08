@@ -54,9 +54,9 @@ wordcloud(words = d$word, freq = d$freq, min.freq = 1,
           max.words=200, random.order=FALSE, rot.per=0.35, 
           colors=brewer.pal(8, "Dark2"),scale = c(3, 0.2))
 
-x <- barplot(d[1:10,]$freq, las = 2, names.arg = d[1:10,]$word,
-        col ="lightblue", main ="Most frequent words",
-        ylab = "Word frequencies",cex.names=0.7)
+barplot(d[1:10,]$freq/59*100, las = 2, names.arg = d[1:10,]$word,
+        col ="lightblue", main ="Most prevalent symptoms",
+        ylab = "Symptom prevalence (%)",cex.names=0.7)
 
 # ==============================================================================
 # Connectivity of lesions
@@ -77,19 +77,66 @@ for (i in 1:59){
 projections <- data.frame(projections)
 
 # ==============================================================================
-# Test statistical significance of LESION CONNECTIVITY
+# Descriptive statistics
+# ==============================================================================
+
+# Patients age
+age <- as.numeric(patients$age[-c(1,2)])
+hist(age,col ="lightblue",ylab="Number of patients")
+min(patients$age[-c(1,2)])
+max(patients$age[-c(1,2)])
+median(patients$age[-c(1,2)])
+
+# Lesion localization
+lesions <- apply(patients_brain,2,sum)
+index <- order(lesions,decreasing = TRUE)
+lesions <- lesions[index]
+region_names <- colnames(patients_brain)
+region_names <- region_names[index]
+
+barplot(lesions/59*100, las = 2, names.arg = region_names,
+        col ="lightblue", main ="Most prevalent lesion localizations",
+        ylab = "Localization prevalence (%)",cex.names=0.3)
+
+# Lesion connectivity
+binarized_projections <- projections
+binarized_projections[projections>0] <- 1
+lesions <- apply(binarized_projections,2,sum)
+index <- order(lesions,decreasing = TRUE)
+lesions <- lesions[index]
+region_names <- colnames(patients_brain)
+region_names <- region_names[index]
+
+barplot(lesions[1:65]/59*100, las = 2, names.arg = region_names[1:65],
+        col ="lightblue", main ="Most prevalent lesion connectivity",
+        ylab = "Connectivity prevalence (%)",cex.names=0.3)
+# ==============================================================================
+# Test association of lesion connectivity with specific symptoms
 # ==============================================================================
 # Add data concerning symptoms and control variables
-projections$delusio <- rep(0,length(nrow(projections)))
-projections$delusio[grep("delusio",patients$symptoms[-c(1,2)])] <- 1
-projections$hallucinat <- rep(0,length(nrow(projections)))
-projections$hallucinat[grep("hallucinat",patients$symptoms[-c(1,2)])] <- 1
+
+projections$delusion <- rep(0,length(nrow(projections)))
+projections$delusion[grep("delusion",patients$symptoms[-c(1,2)])] <- 1
+projections$delusion <- as.factor(projections$delusion)
+
+projections$hallucination <- rep(0,length(nrow(projections)))
+projections$hallucination[grep("hallucination",patients$symptoms[-c(1,2)])] <- 1
+projections$hallucination <- as.factor(projections$hallucination)
+
 projections$othello <- rep(0,length(nrow(projections)))
 projections$othello[grep("Othello",patients$symptoms[-c(1,2)])] <- 1
-projections$parasit <- rep(0,length(nrow(projections)))
-projections$parasit[grep("parasit",patients$symptoms[-c(1,2)])] <- 1
+projections$othello <- as.factor(projections$othello)
+
 projections$visual <- rep(0,length(nrow(projections)))
 projections$visual[grep("visual",patients$symptoms[-c(1,2)])] <- 1
+projections$visual <- as.factor(projections$visual)
+# 
+# projections$parasit <- rep(0,length(nrow(projections)))
+# projections$parasit[grep("parasit",patients$symptoms[-c(1,2)])] <- 1
+# projections$parasit <- as.factor(projections$parasit)
+
+
+
 projections$age <- patients$age[-c(1,2)]
 
 # Modèle linéaire prédisant l'atteinte pour chaque région cérébrale en fonction des symptômes les plus communs et corrigeant pour les autres
@@ -97,10 +144,10 @@ results <- c()
 for (i in c(1:65)){ # for each of 65 brain regions
   projections$outcome <- projections[,i] # select region
   mod1<- lm(outcome ~
-               as.factor(hallucinat)+
-               as.factor(othello)+
-               as.factor(parasit)+
-               as.factor(visual)+
+              delusion+
+              hallucination+
+               othello+
+               visual+
                as.numeric(age),
              data = projections)
   
@@ -116,7 +163,7 @@ for (i in c(1:65)){ # for each of 65 brain regions
 }
 results <- data.frame(results)
 results[,c(1:3,6)] <- lapply(results[,c(1:3,6)],as.numeric)
-# results$p_values <- p.adjust(results$p_values, method = "fdr", n = length(results$p_values))
+# results$p_values <- p.adjust(results$p_values, method = "bonf", n = length(results$p_values))
 results$significance[results$p_values>0.05] <- NA
 results$significance[results$p_values<0.05] <- "p<0.05"
 results$significance[results$p_values<0.01] <- "p<0.01"
